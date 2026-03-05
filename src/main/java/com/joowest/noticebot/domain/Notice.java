@@ -4,6 +4,7 @@ import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Document(collection = "notices")
 public class Notice {
@@ -15,6 +16,9 @@ public class Notice {
     private String date;
     private String url;
     private String summary;
+    private String category;
+    private String dept;
+    private LocalDateTime createdAt;
     private LocalDate deadline;
 
     private boolean reminderSent;
@@ -34,6 +38,29 @@ public class Notice {
         this.date = date;
         this.url = url;
         this.summary = summary;
+        this.category = null;
+        this.dept = null;
+        this.createdAt = LocalDateTime.now();
+        this.deadline = deadline;
+        this.reminderSent = false;
+    }
+
+    public Notice(String id,
+                  String title,
+                  String date,
+                  String url,
+                  String summary,
+                  String category,
+                  String dept,
+                  LocalDate deadline) {
+        this.id = id;
+        this.title = title;
+        this.date = date;
+        this.url = url;
+        this.summary = summary;
+        this.category = category;
+        this.dept = dept;
+        this.createdAt = LocalDateTime.now();
         this.deadline = deadline;
         this.reminderSent = false;
     }
@@ -49,6 +76,12 @@ public class Notice {
     public String getUrl() { return url; }
 
     public String getSummary() { return summary; }
+
+    public String getCategory() { return category; }
+
+    public String getDept() { return dept; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
 
     public LocalDate getDeadline() { return deadline; }
 

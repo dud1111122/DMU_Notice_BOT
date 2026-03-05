@@ -5,20 +5,26 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 import java.time.LocalDateTime;
 
-@Document(collection = "guild_settings")
+@Document(collection = "departments")
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class GuildSetting {
+public class Department {
     @Id
     private String id;
-    private String guildId;
-    private String channelId;
+
+    @Indexed(unique = true)
+    private String deptCode;
+
+    private String deptName;
+    private String noticeUrl;
     private Boolean enabled;
+    private Integer sortOrder;
     private LocalDateTime createdAt;
 }

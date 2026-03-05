@@ -3,6 +3,8 @@ HELP.md
 build/
 .env
 application-local.properties
+commands.md
+database.md
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/

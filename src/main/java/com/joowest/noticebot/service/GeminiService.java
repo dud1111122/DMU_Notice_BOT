@@ -3,9 +3,11 @@ package com.joowest.noticebot.service;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -15,18 +17,21 @@ public class GeminiService {
     @Value("${gemini.api.key}")
     private String apiKey;
 
+    @Value("${gemini.model.primary:gemini-2.5-flash}")
+    private String primaryModel;
+
+    @Value("${gemini.model.fallback:gemini-1.5-flash}")
+    private String fallbackModel;
+
     private final RestTemplate restTemplate = new RestTemplate();
 
-    private static final String BASE_URL =
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=";
+    private static final String BASE_URL_TEMPLATE =
+            "https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s";
 
     /**
      * 🔥 공통 Gemini 호출
      */
     private String callGemini(String prompt) {
-
-        String url = BASE_URL + apiKey;
-
         Map<String, Object> body = Map.of(
                 "contents", List.of(
                         Map.of(
@@ -43,18 +48,63 @@ public class GeminiService {
         HttpEntity<Map<String, Object>> request =
                 new HttpEntity<>(body, headers);
 
-        ResponseEntity<Map> response =
-                restTemplate.postForEntity(url, request, Map.class);
+        List<String> models = buildModelCandidates();
 
+        for (String model : models) {
+            String url = String.format(BASE_URL_TEMPLATE, model, apiKey);
+            try {
+                ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
+                String parsed = parseGeminiResponse(response);
+                if (!"ERROR".equals(parsed)) {
+                    return parsed;
+                }
+            } catch (HttpClientErrorException.TooManyRequests e) {
+                System.out.println("Gemini 429 발생, 모델 폴백 시도: " + model);
+            } catch (Exception e) {
+                System.out.println("Gemini 호출 실패(" + model + "): " + e.getMessage());
+            }
+        }
+
+        return "ERROR";
+    }
+
+    private List<String> buildModelCandidates() {
+        List<String> models = new ArrayList<>();
+
+        if (primaryModel != null && !primaryModel.isBlank()) {
+            models.add(primaryModel.trim());
+        }
+        if (fallbackModel != null && !fallbackModel.isBlank()) {
+            String fallback = fallbackModel.trim();
+            if (!models.contains(fallback)) {
+                models.add(fallback);
+            }
+        }
+
+        if (models.isEmpty()) {
+            models.add("gemini-2.5-flash");
+        }
+
+        return models;
+    }
+
+    private String parseGeminiResponse(ResponseEntity<Map> response) {
         try {
+            if (response.getBody() == null) {
+                return "ERROR";
+            }
+
             List candidates = (List) response.getBody().get("candidates");
+            if (candidates == null || candidates.isEmpty()) {
+                return "ERROR";
+            }
+
             Map first = (Map) candidates.get(0);
             Map contentMap = (Map) first.get("content");
             List parts = (List) contentMap.get("parts");
             Map textPart = (Map) parts.get(0);
 
             return ((String) textPart.get("text")).trim();
-
         } catch (Exception e) {
             return "ERROR";
         }
