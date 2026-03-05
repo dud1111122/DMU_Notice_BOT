@@ -16,10 +16,6 @@ import javax.security.auth.login.LoginException;
 public class NoticebotApplication {
 
     public static void main(String[] args) {
-
-        // 로컬 개발 환경 프로필 활성화
-        System.setProperty("spring.profiles.active", "local");
-
         SpringApplication.run(NoticebotApplication.class, args);
     }
 
