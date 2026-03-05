@@ -12,16 +12,16 @@ import java.time.LocalDate;
 @Service
 public class NoticeCrawlerService {
 
-    private final DiscordService discordService;
     private final NoticeRepository noticeRepository;
     private final GeminiService geminiService;
+    private final DiscordBotService discordBotService;
 
-    public NoticeCrawlerService(DiscordService discordService,
-                                NoticeRepository noticeRepository,
-                                GeminiService geminiService) {
-        this.discordService = discordService;
+    public NoticeCrawlerService(NoticeRepository noticeRepository,
+                                GeminiService geminiService,
+                                DiscordBotService discordBotService) {
         this.noticeRepository = noticeRepository;
         this.geminiService = geminiService;
+        this.discordBotService = discordBotService;
     }
 
     public void checkLatestNotice() throws Exception {
@@ -80,7 +80,7 @@ public class NoticeCrawlerService {
                         summary + "\n\n" +
                         "🔗 " + detailUrl;
 
-        discordService.sendMessage(message);
+        discordBotService.sendNoticeToAllConfiguredChannels(message);
 
         Notice notice = new Notice(
                 postId,

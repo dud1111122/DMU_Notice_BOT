@@ -2,7 +2,7 @@ package com.joowest.noticebot.scheduler;
 
 import com.joowest.noticebot.domain.Notice;
 import com.joowest.noticebot.repository.NoticeRepository;
-import com.joowest.noticebot.service.DiscordService;
+import com.joowest.noticebot.service.DiscordBotService;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -13,12 +13,12 @@ import java.util.List;
 public class DeadlineScheduler {
 
     private final NoticeRepository noticeRepository;
-    private final DiscordService discordService;
+    private final DiscordBotService discordBotService;
 
     public DeadlineScheduler(NoticeRepository noticeRepository,
-                             DiscordService discordService) {
+                             DiscordBotService discordBotService) {
         this.noticeRepository = noticeRepository;
-        this.discordService = discordService;
+        this.discordBotService = discordBotService;
     }
 
     @Scheduled(cron = "0 0 9 * * ?", zone = "Asia/Seoul")
@@ -38,7 +38,7 @@ public class DeadlineScheduler {
                             "⏰ 마감일: " + notice.getDeadline() + "\n\n" +
                             "🔗 " + notice.getUrl();
 
-            discordService.sendMessage(message);
+            discordBotService.sendNoticeToAllConfiguredChannels(message);
 
             // 🔥 재알림 보냄 처리
             notice.setReminderSent(true);
