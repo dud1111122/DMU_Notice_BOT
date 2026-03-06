@@ -72,7 +72,10 @@ public class DiscordListener extends ListenerAdapter {
 
     @Override
     public void onCommandAutoCompleteInteraction(CommandAutoCompleteInteractionEvent event) {
-        if (!"구독".equals(event.getName()) || !"과".equals(event.getSubcommandName())) {
+        if (!"구독".equals(event.getName())) {
+            return;
+        }
+        if (!"과".equals(event.getSubcommandName()) && !"취소".equals(event.getSubcommandName())) {
             return;
         }
         if (!"dept".equals(event.getFocusedOption().getName())) {
@@ -200,6 +203,34 @@ public class DiscordListener extends ListenerAdapter {
                 userSubscriptionRepository.save(subscription);
 
                 event.reply("✅ 구독 등록 완료\n\n`" + department.get().getDeptName() + "` 공지를 구독합니다.")
+                        .setEphemeral(true)
+                        .queue();
+            }
+            case "취소" -> {
+                OptionMapping deptOption = event.getOption("dept");
+                if (deptOption == null) {
+                    event.reply("취소할 학과를 입력해주세요.").setEphemeral(true).queue();
+                    return;
+                }
+
+                String deptCode = deptOption.getAsString();
+                Optional<UserSubscription> existing =
+                        userSubscriptionRepository.findByUserIdAndGuildIdAndDept(userId, guildId, deptCode);
+
+                if (existing.isEmpty()) {
+                    event.reply("해당 학과 구독 내역이 없습니다.").setEphemeral(true).queue();
+                    return;
+                }
+
+                UserSubscription subscription = existing.get();
+                subscription.setEnabled(false);
+                userSubscriptionRepository.save(subscription);
+
+                String deptName = departmentRepository.findByDeptCode(deptCode)
+                        .map(Department::getDeptName)
+                        .orElse(deptCode);
+
+                event.reply("🗑 구독 취소 완료\n\n`" + deptName + "` 공지 구독을 해제했습니다.")
                         .setEphemeral(true)
                         .queue();
             }
@@ -403,6 +434,7 @@ public class DiscordListener extends ListenerAdapter {
                 /공지 요약
 
                 /구독 과 dept
+                /구독 취소 dept
                 /구독 전체 enabled
                 /구독 목록
 
@@ -449,6 +481,8 @@ public class DiscordListener extends ListenerAdapter {
                         Commands.slash("구독", "공지 알림 구독 관리")
                                 .addSubcommands(
                                         new SubcommandData("과", "특정 학과 공지 구독")
+                                                .addOption(OptionType.STRING, "dept", "학과명", true, true),
+                                        new SubcommandData("취소", "특정 학과 공지 구독 취소")
                                                 .addOption(OptionType.STRING, "dept", "학과명", true, true),
                                         new SubcommandData("전체", "전체 공지 알림 ON/OFF")
                                                 .addOption(OptionType.BOOLEAN, "enabled", "활성화 여부", true),
