@@ -129,15 +129,15 @@ public class DiscordListener extends ListenerAdapter {
                 List<Notice> notices = noticeRepository.findTop10ByTitleContainingIgnoreCaseOrderByCreatedAtDesc(keyword);
                 event.reply(formatNoticeList("🔎 검색 결과: " + keyword, notices)).queue();
             }
-            case "카테고리" -> {
-                OptionMapping categoryOption = event.getOption("category");
-                if (categoryOption == null) {
-                    event.reply("카테고리를 입력해주세요.").setEphemeral(true).queue();
+            case "학과" -> {
+                OptionMapping departmentOption = event.getOption("dept");
+                if (departmentOption == null) {
+                    event.reply("학과 코드를 입력해주세요.").setEphemeral(true).queue();
                     return;
                 }
-                String category = categoryOption.getAsString();
-                List<Notice> notices = noticeRepository.findTop10ByCategoryIgnoreCaseOrderByCreatedAtDesc(category);
-                event.reply(formatNoticeList("🗂 카테고리: " + category, notices)).queue();
+                String departmentCode = departmentOption.getAsString();
+                List<Notice> notices = noticeRepository.findTop10ByDepartmentCodeIgnoreCaseOrderByCreatedAtDesc(departmentCode);
+                event.reply(formatNoticeList("🏫 학과 공지: " + departmentCode, notices)).queue();
             }
             case "요약" -> {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
@@ -151,7 +151,7 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 Map<String, Long> grouped = notices.stream()
-                        .collect(Collectors.groupingBy(n -> n.getCategory() == null ? "기타" : n.getCategory(), Collectors.counting()));
+                        .collect(Collectors.groupingBy(Notice::getDepartmentName, Collectors.counting()));
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("🔹 오늘 공지 요약\n\n");
@@ -190,12 +190,12 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 Optional<UserSubscription> existing =
-                        userSubscriptionRepository.findByUserIdAndGuildIdAndDept(userId, guildId, deptCode);
+                        userSubscriptionRepository.findByUserIdAndGuildIdAndDepartmentCode(userId, guildId, deptCode);
 
                 UserSubscription subscription = existing.orElseGet(() -> UserSubscription.builder()
                         .userId(userId)
                         .guildId(guildId)
-                        .dept(deptCode)
+                        .departmentCode(deptCode)
                         .createdAt(LocalDateTime.now())
                         .build());
 
@@ -215,7 +215,7 @@ public class DiscordListener extends ListenerAdapter {
 
                 String deptCode = deptOption.getAsString();
                 Optional<UserSubscription> existing =
-                        userSubscriptionRepository.findByUserIdAndGuildIdAndDept(userId, guildId, deptCode);
+                        userSubscriptionRepository.findByUserIdAndGuildIdAndDepartmentCode(userId, guildId, deptCode);
 
                 if (existing.isEmpty()) {
                     event.reply("해당 학과 구독 내역이 없습니다.").setEphemeral(true).queue();
@@ -243,12 +243,12 @@ public class DiscordListener extends ListenerAdapter {
 
                 boolean enabled = enabledOption.getAsBoolean();
                 Optional<UserSubscription> existing =
-                        userSubscriptionRepository.findByUserIdAndGuildIdAndDept(userId, guildId, ALL_DEPT);
+                        userSubscriptionRepository.findByUserIdAndGuildIdAndDepartmentCode(userId, guildId, ALL_DEPT);
 
                 UserSubscription subscription = existing.orElseGet(() -> UserSubscription.builder()
                         .userId(userId)
                         .guildId(guildId)
-                        .dept(ALL_DEPT)
+                        .departmentCode(ALL_DEPT)
                         .createdAt(LocalDateTime.now())
                         .build());
 
@@ -268,11 +268,11 @@ public class DiscordListener extends ListenerAdapter {
 
                 String list = subs.stream()
                         .map(s -> {
-                            String label = ALL_DEPT.equals(s.getDept()) ? "전체" : s.getDept();
-                            if (!ALL_DEPT.equals(s.getDept())) {
-                                label = departmentRepository.findByDeptCode(s.getDept())
+                            String label = ALL_DEPT.equals(s.getDepartmentCode()) ? "전체" : s.getDepartmentCode();
+                            if (!ALL_DEPT.equals(s.getDepartmentCode())) {
+                                label = departmentRepository.findByDeptCode(s.getDepartmentCode())
                                         .map(Department::getDeptName)
-                                        .orElse(s.getDept());
+                                        .orElse(s.getDepartmentCode());
                             }
                             return "- " + label + " : " + (Boolean.TRUE.equals(s.getEnabled()) ? "ON" : "OFF");
                         })
@@ -430,7 +430,7 @@ public class DiscordListener extends ListenerAdapter {
                 /공지 최근
                 /공지 오늘
                 /공지 검색 keyword
-                /공지 카테고리 category
+                /공지 학과 dept
                 /공지 요약
 
                 /구독 과 dept
@@ -474,8 +474,8 @@ public class DiscordListener extends ListenerAdapter {
                                         new SubcommandData("오늘", "오늘 올라온 공지 조회"),
                                         new SubcommandData("검색", "키워드로 공지 검색")
                                                 .addOption(OptionType.STRING, "keyword", "검색어", true),
-                                        new SubcommandData("카테고리", "특정 카테고리 공지 조회")
-                                                .addOption(OptionType.STRING, "category", "카테고리명", true),
+                                        new SubcommandData("학과", "특정 학과 공지 조회")
+                                                .addOption(OptionType.STRING, "dept", "학과 코드", true, true),
                                         new SubcommandData("요약", "오늘 공지 요약")
                                 ),
                         Commands.slash("구독", "공지 알림 구독 관리")

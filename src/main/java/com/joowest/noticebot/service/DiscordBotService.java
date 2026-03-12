@@ -6,7 +6,6 @@ import com.joowest.noticebot.repository.GuildSettingRepository;
 import com.joowest.noticebot.repository.UserSubscriptionRepository;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashSet;
@@ -84,9 +83,9 @@ public class DiscordBotService {
 
             Set<String> targetUserIds = new LinkedHashSet<>();
             List<UserSubscription> deptSubscribers =
-                    userSubscriptionRepository.findByGuildIdAndDeptAndEnabledTrue(setting.getGuildId(), deptCode);
+                    userSubscriptionRepository.findByGuildIdAndDepartmentCodeAndEnabledTrue(setting.getGuildId(), deptCode);
             List<UserSubscription> allSubscribers =
-                    userSubscriptionRepository.findByGuildIdAndDeptAndEnabledTrue(setting.getGuildId(), ALL_DEPT);
+                    userSubscriptionRepository.findByGuildIdAndDepartmentCodeAndEnabledTrue(setting.getGuildId(), ALL_DEPT);
 
             deptSubscribers.forEach(s -> targetUserIds.add(s.getUserId()));
             allSubscribers.forEach(s -> targetUserIds.add(s.getUserId()));

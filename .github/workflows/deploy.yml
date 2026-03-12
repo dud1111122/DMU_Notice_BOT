@@ -30,10 +30,10 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Docker build
-        run: docker build -t joowest911/noticebot .
+        run: docker build -t joowest911/noticebot:latest .
 
       - name: Docker push
-        run: docker push joowest911/noticebot
+        run: docker push joowest911/noticebot:latest
 
 
   deploy:
@@ -49,6 +49,6 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd ~/DMU_Notice_BOT
-            docker pull joowest911/noticebot
-            docker-compose down
-            docker-compose up -d
+            docker pull joowest911/noticebot:latest
+            docker compose down
+            docker compose up -d

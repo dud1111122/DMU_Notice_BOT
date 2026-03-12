@@ -13,5 +13,5 @@ public interface NoticeRepository extends JpaRepository<Notice, String> {
     List<Notice> findTop10ByOrderByCreatedAtDesc();
     List<Notice> findByCreatedAtBetweenOrderByCreatedAtDesc(LocalDateTime start, LocalDateTime end);
     List<Notice> findTop10ByTitleContainingIgnoreCaseOrderByCreatedAtDesc(String keyword);
-    List<Notice> findTop10ByCategoryIgnoreCaseOrderByCreatedAtDesc(String category);
+    List<Notice> findTop10ByDepartmentCodeIgnoreCaseOrderByCreatedAtDesc(String departmentCode);
 }

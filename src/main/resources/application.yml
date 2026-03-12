@@ -15,8 +15,11 @@ spring:
         format_sql: true
 
 discord:
-  webhook-url: ${DISCORD_WEBHOOK_URL}
+  token: ${DISCORD_BOT_TOKEN}
 
 gemini:
   api:
     key: ${GEMINI_API_KEY}
+  model:
+    primary: ${GEMINI_MODEL_PRIMARY:gemini-2.5-flash}
+    fallback: ${GEMINI_MODEL_FALLBACK:gemini-1.5-flash}
