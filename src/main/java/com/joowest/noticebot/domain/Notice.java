@@ -1,20 +1,29 @@
 package com.joowest.noticebot.domain;
 
-import org.springframework.data.annotation.Id;
-import org.springframework.data.mongodb.core.mapping.Document;
-
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
-@Document(collection = "notices")
+@Entity
+@Table(name = "notices")
 public class Notice {
 
     @Id
     private String id;
 
+    @Column(nullable = false)
     private String title;
+
+    @Column(nullable = false)
     private String date;
+
+    @Column(nullable = false, unique = true)
     private String url;
+
+    @Column(columnDefinition = "TEXT")
     private String summary;
     private String category;
     private String dept;
@@ -23,10 +32,8 @@ public class Notice {
 
     private boolean reminderSent;
 
-    // 🔥 기본 생성자 (Mongo 필수)
     public Notice() {}
 
-    // 🔥 생성자 (reminderSent 자동 false)
     public Notice(String id,
                   String title,
                   String date,
@@ -65,8 +72,6 @@ public class Notice {
         this.reminderSent = false;
     }
 
-    // 🔥 Getter / Setter
-
     public String getId() { return id; }
 
     public String getTitle() { return title; }
@@ -86,6 +91,18 @@ public class Notice {
     public LocalDate getDeadline() { return deadline; }
 
     public boolean isReminderSent() { return reminderSent; }
+
+    public void setId(String id) { this.id = id; }
+
+    public void setTitle(String title) { this.title = title; }
+
+    public void setDate(String date) { this.date = date; }
+
+    public void setUrl(String url) { this.url = url; }
+
+    public void setSummary(String summary) { this.summary = summary; }
+
+    public void setDeadline(LocalDate deadline) { this.deadline = deadline; }
 
     public void setReminderSent(boolean reminderSent) {
         this.reminderSent = reminderSent;

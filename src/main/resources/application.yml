@@ -1,0 +1,22 @@
+spring:
+  application:
+    name: noticebot
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/noticebot}
+    username: ${SPRING_DATASOURCE_USERNAME:notice}
+    password: ${SPRING_DATASOURCE_PASSWORD:notice123}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+
+discord:
+  webhook-url: ${DISCORD_WEBHOOK_URL}
+
+gemini:
+  api:
+    key: ${GEMINI_API_KEY}
