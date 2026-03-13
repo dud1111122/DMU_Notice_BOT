@@ -13,7 +13,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 		"spring.datasource.password=",
 		"spring.jpa.hibernate.ddl-auto=create-drop",
 		"spring.jpa.database-platform=org.hibernate.dialect.H2Dialect",
-		"spring.task.scheduling.enabled=false"
+		"spring.task.scheduling.enabled=false",
+		"discord.token=test-token",
+		"gemini.api.key=test-key"
 })
 class NoticebotApplicationTests {
 

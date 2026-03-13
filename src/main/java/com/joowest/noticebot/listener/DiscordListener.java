@@ -1,15 +1,29 @@
 package com.joowest.noticebot.listener;
 
+import com.joowest.noticebot.domain.AppUser;
 import com.joowest.noticebot.domain.Department;
 import com.joowest.noticebot.domain.GuildSetting;
+import com.joowest.noticebot.domain.Keyword;
 import com.joowest.noticebot.domain.Notice;
-import com.joowest.noticebot.domain.UserKeyword;
-import com.joowest.noticebot.domain.UserSubscription;
+import com.joowest.noticebot.domain.Subscription;
+import com.joowest.noticebot.domain.UserSetting;
+import com.joowest.noticebot.repository.AppUserRepository;
 import com.joowest.noticebot.repository.DepartmentRepository;
 import com.joowest.noticebot.repository.GuildSettingRepository;
+import com.joowest.noticebot.repository.KeywordRepository;
 import com.joowest.noticebot.repository.NoticeRepository;
-import com.joowest.noticebot.repository.UserKeywordRepository;
-import com.joowest.noticebot.repository.UserSubscriptionRepository;
+import com.joowest.noticebot.repository.SubscriptionRepository;
+import com.joowest.noticebot.repository.UserSettingRepository;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Collectors;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.Permission;
 import net.dv8tion.jda.api.entities.channel.ChannelType;
@@ -23,37 +37,31 @@ import net.dv8tion.jda.api.interactions.commands.build.Commands;
 import net.dv8tion.jda.api.interactions.commands.build.SubcommandData;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.LocalTime;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.stream.Collectors;
-
 @Component
 public class DiscordListener extends ListenerAdapter {
 
-    private static final String ALL_DEPT = "__ALL__";
-
+    private final AppUserRepository appUserRepository;
     private final GuildSettingRepository guildSettingRepository;
+    private final UserSettingRepository userSettingRepository;
     private final NoticeRepository noticeRepository;
     private final DepartmentRepository departmentRepository;
-    private final UserSubscriptionRepository userSubscriptionRepository;
-    private final UserKeywordRepository userKeywordRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final KeywordRepository keywordRepository;
 
-    public DiscordListener(GuildSettingRepository guildSettingRepository,
+    public DiscordListener(AppUserRepository appUserRepository,
+                           GuildSettingRepository guildSettingRepository,
+                           UserSettingRepository userSettingRepository,
                            NoticeRepository noticeRepository,
                            DepartmentRepository departmentRepository,
-                           UserSubscriptionRepository userSubscriptionRepository,
-                           UserKeywordRepository userKeywordRepository) {
+                           SubscriptionRepository subscriptionRepository,
+                           KeywordRepository keywordRepository) {
+        this.appUserRepository = appUserRepository;
         this.guildSettingRepository = guildSettingRepository;
+        this.userSettingRepository = userSettingRepository;
         this.noticeRepository = noticeRepository;
         this.departmentRepository = departmentRepository;
-        this.userSubscriptionRepository = userSubscriptionRepository;
-        this.userKeywordRepository = userKeywordRepository;
+        this.subscriptionRepository = subscriptionRepository;
+        this.keywordRepository = keywordRepository;
     }
 
     @Override
@@ -72,13 +80,11 @@ public class DiscordListener extends ListenerAdapter {
 
     @Override
     public void onCommandAutoCompleteInteraction(CommandAutoCompleteInteractionEvent event) {
-        if (!"구독".equals(event.getName())) {
-            return;
-        }
-        if (!"과".equals(event.getSubcommandName()) && !"취소".equals(event.getSubcommandName())) {
-            return;
-        }
         if (!"dept".equals(event.getFocusedOption().getName())) {
+            return;
+        }
+        String subcommand = event.getSubcommandName();
+        if (!"학과".equals(subcommand) && !"과".equals(subcommand) && !"취소".equals(subcommand)) {
             return;
         }
 
@@ -109,14 +115,14 @@ public class DiscordListener extends ListenerAdapter {
 
         switch (sub) {
             case "최근" -> {
-                List<Notice> notices = noticeRepository.findTop10ByOrderByCreatedAtDesc();
+                List<Notice> notices = noticeRepository.findTop10ByOrderByPostedAtDescCreatedAtDesc();
                 event.reply(formatNoticeList("📢 최근 공지", notices)).queue();
             }
             case "오늘" -> {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
                 LocalDateTime start = today.atStartOfDay();
                 LocalDateTime end = LocalDateTime.of(today, LocalTime.MAX);
-                List<Notice> notices = noticeRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(start, end);
+                List<Notice> notices = noticeRepository.findByPostedAtBetweenOrderByPostedAtDescCreatedAtDesc(start, end);
                 event.reply(formatNoticeList("📅 오늘 공지", notices)).queue();
             }
             case "검색" -> {
@@ -126,7 +132,7 @@ public class DiscordListener extends ListenerAdapter {
                     return;
                 }
                 String keyword = keywordOption.getAsString();
-                List<Notice> notices = noticeRepository.findTop10ByTitleContainingIgnoreCaseOrderByCreatedAtDesc(keyword);
+                List<Notice> notices = noticeRepository.findTop10ByTitleContainingIgnoreCaseOrderByPostedAtDescCreatedAtDesc(keyword);
                 event.reply(formatNoticeList("🔎 검색 결과: " + keyword, notices)).queue();
             }
             case "학과" -> {
@@ -136,14 +142,14 @@ public class DiscordListener extends ListenerAdapter {
                     return;
                 }
                 String departmentCode = departmentOption.getAsString();
-                List<Notice> notices = noticeRepository.findTop10ByDepartmentCodeIgnoreCaseOrderByCreatedAtDesc(departmentCode);
+                List<Notice> notices = noticeRepository.findTop10ByDepartmentDeptCodeIgnoreCaseOrderByPostedAtDescCreatedAtDesc(departmentCode);
                 event.reply(formatNoticeList("🏫 학과 공지: " + departmentCode, notices)).queue();
             }
             case "요약" -> {
                 LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
                 LocalDateTime start = today.atStartOfDay();
                 LocalDateTime end = LocalDateTime.of(today, LocalTime.MAX);
-                List<Notice> notices = noticeRepository.findByCreatedAtBetweenOrderByCreatedAtDesc(start, end);
+                List<Notice> notices = noticeRepository.findByPostedAtBetweenOrderByPostedAtDescCreatedAtDesc(start, end);
 
                 if (notices.isEmpty()) {
                     event.reply("🔹 오늘 공지가 없습니다.").queue();
@@ -151,7 +157,10 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 Map<String, Long> grouped = notices.stream()
-                        .collect(Collectors.groupingBy(Notice::getDepartmentName, Collectors.counting()));
+                        .collect(Collectors.groupingBy(
+                                notice -> notice.getDepartment() != null ? notice.getDepartment().getDeptName() : "미분류",
+                                Collectors.counting()
+                        ));
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("🔹 오늘 공지 요약\n\n");
@@ -171,70 +180,75 @@ public class DiscordListener extends ListenerAdapter {
             return;
         }
 
-        String guildId = event.getGuild().getId();
-        String userId = event.getUser().getId();
+        AppUser user = ensureUser(event.getUser().getId(), event.getUser().getName());
 
         switch (sub) {
             case "과" -> {
-                OptionMapping deptOption = event.getOption("dept");
-                if (deptOption == null) {
-                    event.reply("학과명을 입력해주세요.").setEphemeral(true).queue();
+                Optional<GuildSetting> existingGuildSetting = guildSettingRepository.findByGuildId(event.getGuild().getId());
+                if (existingGuildSetting.isEmpty()
+                        || existingGuildSetting.get().getChannelId() == null
+                        || existingGuildSetting.get().getChannelId().isBlank()) {
+                    event.reply("관리자가 먼저 `/설정 채널`로 공지 채널을 설정해주세요.")
+                            .setEphemeral(true)
+                            .queue();
                     return;
                 }
-                String deptCode = deptOption.getAsString();
-                Optional<Department> department = departmentRepository.findByDeptCode(deptCode);
 
-                if (department.isEmpty() || Boolean.FALSE.equals(department.get().getEnabled())) {
+                GuildSetting guildSetting = existingGuildSetting.get();
+                Department department = resolveDepartment(event.getOption("dept")).orElse(null);
+                if (department == null || Boolean.FALSE.equals(department.getEnabled())) {
                     event.reply("유효한 학과를 선택해주세요.").setEphemeral(true).queue();
                     return;
                 }
 
-                Optional<UserSubscription> existing =
-                        userSubscriptionRepository.findByUserIdAndGuildIdAndDepartmentCode(userId, guildId, deptCode);
+                Optional<Subscription> existing =
+                        subscriptionRepository.findByUserIdAndGuildSettingIdAndDepartmentId(
+                                user.getId(),
+                                guildSetting.getId(),
+                                department.getId()
+                        );
 
-                UserSubscription subscription = existing.orElseGet(() -> UserSubscription.builder()
-                        .userId(userId)
-                        .guildId(guildId)
-                        .departmentCode(deptCode)
-                        .createdAt(LocalDateTime.now())
+                Subscription subscription = existing.orElseGet(() -> Subscription.builder()
+                        .user(user)
+                        .guildSetting(guildSetting)
+                        .department(department)
                         .build());
 
                 subscription.setEnabled(true);
-                userSubscriptionRepository.save(subscription);
+                subscriptionRepository.save(subscription);
 
-                event.reply("✅ 구독 등록 완료\n\n`" + department.get().getDeptName() + "` 공지를 구독합니다.")
+                event.reply("✅ 구독 등록 완료\n\n`" + department.getDeptName() + "` 공지를 구독합니다.")
                         .setEphemeral(true)
                         .queue();
             }
             case "취소" -> {
-                OptionMapping deptOption = event.getOption("dept");
-                if (deptOption == null) {
-                    event.reply("취소할 학과를 입력해주세요.").setEphemeral(true).queue();
+                GuildSetting guildSetting = ensureGuildSetting(event.getGuild().getId(), event.getGuild().getName());
+                Department department = resolveDepartment(event.getOption("dept")).orElse(null);
+                if (department == null) {
+                    event.reply("유효한 학과를 선택해주세요.").setEphemeral(true).queue();
                     return;
                 }
 
-                String deptCode = deptOption.getAsString();
-                Optional<UserSubscription> existing =
-                        userSubscriptionRepository.findByUserIdAndGuildIdAndDepartmentCode(userId, guildId, deptCode);
+                Optional<Subscription> existing =
+                        subscriptionRepository.findByUserIdAndGuildSettingIdAndDepartmentId(
+                                user.getId(),
+                                guildSetting.getId(),
+                                department.getId()
+                        );
 
                 if (existing.isEmpty()) {
                     event.reply("해당 학과 구독 내역이 없습니다.").setEphemeral(true).queue();
                     return;
                 }
 
-                UserSubscription subscription = existing.get();
-                subscription.setEnabled(false);
-                userSubscriptionRepository.save(subscription);
+                subscriptionRepository.delete(existing.get());
 
-                String deptName = departmentRepository.findByDeptCode(deptCode)
-                        .map(Department::getDeptName)
-                        .orElse(deptCode);
-
-                event.reply("🗑 구독 취소 완료\n\n`" + deptName + "` 공지 구독을 해제했습니다.")
+                event.reply("🗑 구독 취소 완료\n\n`" + department.getDeptName() + "` 공지 구독을 해제했습니다.")
                         .setEphemeral(true)
                         .queue();
             }
             case "전체" -> {
+                GuildSetting guildSetting = ensureGuildSetting(event.getGuild().getId(), event.getGuild().getName());
                 OptionMapping enabledOption = event.getOption("enabled");
                 if (enabledOption == null) {
                     event.reply("활성화 여부를 선택해주세요.").setEphemeral(true).queue();
@@ -242,43 +256,34 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 boolean enabled = enabledOption.getAsBoolean();
-                Optional<UserSubscription> existing =
-                        userSubscriptionRepository.findByUserIdAndGuildIdAndDepartmentCode(userId, guildId, ALL_DEPT);
+                UserSetting userSetting = ensureUserSetting(user, guildSetting);
+                userSetting.setAllNoticeEnabled(enabled);
+                userSettingRepository.save(userSetting);
 
-                UserSubscription subscription = existing.orElseGet(() -> UserSubscription.builder()
-                        .userId(userId)
-                        .guildId(guildId)
-                        .departmentCode(ALL_DEPT)
-                        .createdAt(LocalDateTime.now())
-                        .build());
-
-                subscription.setEnabled(enabled);
-                userSubscriptionRepository.save(subscription);
-
-                event.reply("✅ 전체 공지 알림이 `" + (enabled ? "ON" : "OFF") + "`으로 설정되었습니다.")
+                event.reply("✅ 이 서버의 전체 공지 멘션이 `" + (enabled ? "ON" : "OFF") + "`으로 설정되었습니다.")
                         .setEphemeral(true)
                         .queue();
             }
             case "목록" -> {
-                List<UserSubscription> subs = userSubscriptionRepository.findByUserIdAndGuildId(userId, guildId);
-                if (subs.isEmpty()) {
-                    event.reply("현재 등록된 구독이 없습니다.").setEphemeral(true).queue();
-                    return;
-                }
+                GuildSetting guildSetting = ensureGuildSetting(event.getGuild().getId(), event.getGuild().getName());
+                UserSetting userSetting = ensureUserSetting(user, guildSetting);
+                List<Subscription> subscriptions = subscriptionRepository.findByUserIdAndGuildSettingId(user.getId(), guildSetting.getId());
 
-                String list = subs.stream()
-                        .map(s -> {
-                            String label = ALL_DEPT.equals(s.getDepartmentCode()) ? "전체" : s.getDepartmentCode();
-                            if (!ALL_DEPT.equals(s.getDepartmentCode())) {
-                                label = departmentRepository.findByDeptCode(s.getDepartmentCode())
-                                        .map(Department::getDeptName)
-                                        .orElse(s.getDepartmentCode());
-                            }
-                            return "- " + label + " : " + (Boolean.TRUE.equals(s.getEnabled()) ? "ON" : "OFF");
-                        })
+                String list = subscriptions.stream()
+                        .filter(subscription -> Boolean.TRUE.equals(subscription.getEnabled()))
+                        .map(subscription -> "- " + subscription.getDepartment().getDeptName())
                         .collect(Collectors.joining("\n"));
 
-                event.reply("📚 내 구독 목록\n\n" + list).setEphemeral(true).queue();
+                StringBuilder sb = new StringBuilder();
+                sb.append("📚 내 구독 목록\n\n");
+                sb.append("- 전체 멘션: ")
+                        .append(Boolean.TRUE.equals(userSetting.getAllNoticeEnabled()) ? "ON" : "OFF");
+
+                if (!list.isBlank()) {
+                    sb.append("\n").append(list);
+                }
+
+                event.reply(sb.toString()).setEphemeral(true).queue();
             }
             default -> event.reply("지원하지 않는 `/구독` 하위 명령어입니다.").setEphemeral(true).queue();
         }
@@ -291,8 +296,8 @@ public class DiscordListener extends ListenerAdapter {
             return;
         }
 
-        String guildId = event.getGuild().getId();
-        String userId = event.getUser().getId();
+        AppUser user = ensureUser(event.getUser().getId(), event.getUser().getName());
+        GuildSetting guildSetting = ensureGuildSetting(event.getGuild().getId(), event.getGuild().getName());
 
         switch (sub) {
             case "추가" -> {
@@ -301,21 +306,20 @@ public class DiscordListener extends ListenerAdapter {
                     event.reply("키워드를 입력해주세요.").setEphemeral(true).queue();
                     return;
                 }
-                String keyword = keywordOption.getAsString();
+                String keyword = keywordOption.getAsString().trim();
 
-                Optional<UserKeyword> existing =
-                        userKeywordRepository.findByUserIdAndGuildIdAndKeyword(userId, guildId, keyword);
+                Optional<Keyword> existing =
+                        keywordRepository.findByUserIdAndGuildSettingIdAndKeyword(user.getId(), guildSetting.getId(), keyword);
 
                 if (existing.isPresent()) {
                     event.reply("이미 등록된 키워드입니다: `" + keyword + "`").setEphemeral(true).queue();
                     return;
                 }
 
-                userKeywordRepository.save(UserKeyword.builder()
-                        .userId(userId)
-                        .guildId(guildId)
+                keywordRepository.save(Keyword.builder()
+                        .user(user)
+                        .guildSetting(guildSetting)
                         .keyword(keyword)
-                        .createdAt(LocalDateTime.now())
                         .build());
 
                 event.reply("✅ 키워드 등록 완료: `" + keyword + "`").setEphemeral(true).queue();
@@ -326,28 +330,28 @@ public class DiscordListener extends ListenerAdapter {
                     event.reply("삭제할 키워드를 입력해주세요.").setEphemeral(true).queue();
                     return;
                 }
-                String keyword = keywordOption.getAsString();
-                Optional<UserKeyword> existing =
-                        userKeywordRepository.findByUserIdAndGuildIdAndKeyword(userId, guildId, keyword);
+                String keyword = keywordOption.getAsString().trim();
+                Optional<Keyword> existing =
+                        keywordRepository.findByUserIdAndGuildSettingIdAndKeyword(user.getId(), guildSetting.getId(), keyword);
 
                 if (existing.isEmpty()) {
                     event.reply("등록되지 않은 키워드입니다: `" + keyword + "`").setEphemeral(true).queue();
                     return;
                 }
 
-                userKeywordRepository.delete(existing.get());
+                keywordRepository.delete(existing.get());
                 event.reply("🗑 키워드 삭제 완료: `" + keyword + "`").setEphemeral(true).queue();
             }
             case "목록" -> {
-                List<UserKeyword> keywords = userKeywordRepository.findByUserIdAndGuildId(userId, guildId);
+                List<Keyword> keywords = keywordRepository.findByUserIdAndGuildSettingId(user.getId(), guildSetting.getId());
                 if (keywords.isEmpty()) {
                     event.reply("현재 등록된 키워드가 없습니다.").setEphemeral(true).queue();
                     return;
                 }
 
                 String list = keywords.stream()
-                        .map(UserKeyword::getKeyword)
-                        .map(k -> "- " + k)
+                        .map(Keyword::getKeyword)
+                        .map(value -> "- " + value)
                         .collect(Collectors.joining("\n"));
 
                 event.reply("🏷 내 키워드 목록\n\n" + list).setEphemeral(true).queue();
@@ -375,15 +379,7 @@ public class DiscordListener extends ListenerAdapter {
             return;
         }
 
-        String guildId = event.getGuild().getId();
-        GuildSetting setting = guildSettingRepository.findByGuildId(guildId);
-        if (setting == null) {
-            setting = GuildSetting.builder()
-                    .guildId(guildId)
-                    .enabled(true)
-                    .createdAt(LocalDateTime.now())
-                    .build();
-        }
+        GuildSetting guildSetting = ensureGuildSetting(event.getGuild().getId(), event.getGuild().getName());
 
         switch (sub) {
             case "채널" -> {
@@ -398,11 +394,10 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 TextChannel textChannel = channelOption.getAsChannel().asTextChannel();
-                setting.setChannelId(textChannel.getId());
-                if (setting.getEnabled() == null) {
-                    setting.setEnabled(true);
-                }
-                guildSettingRepository.save(setting);
+                guildSetting.setGuildName(event.getGuild().getName());
+                guildSetting.setChannelId(textChannel.getId());
+                guildSetting.setEnabled(true);
+                guildSettingRepository.save(guildSetting);
 
                 event.reply("✅ 공지 채널이 #" + textChannel.getName() + " 로 설정되었습니다.").queue();
             }
@@ -414,8 +409,9 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 boolean enabled = enabledOption.getAsBoolean();
-                setting.setEnabled(enabled);
-                guildSettingRepository.save(setting);
+                guildSetting.setGuildName(event.getGuild().getName());
+                guildSetting.setEnabled(enabled);
+                guildSettingRepository.save(guildSetting);
 
                 event.reply("✅ 서버 공지 알림이 `" + (enabled ? "ON" : "OFF") + "`으로 설정되었습니다.").queue();
             }
@@ -448,6 +444,53 @@ public class DiscordListener extends ListenerAdapter {
         event.reply(help).setEphemeral(true).queue();
     }
 
+    private Optional<Department> resolveDepartment(OptionMapping departmentOption) {
+        if (departmentOption == null) {
+            return Optional.empty();
+        }
+        return departmentRepository.findByDeptCode(departmentOption.getAsString());
+    }
+
+    private AppUser ensureUser(String discordId, String username) {
+        return appUserRepository.findByDiscordId(discordId)
+                .map(existing -> {
+                    if (!Objects.equals(existing.getUsername(), username)) {
+                        existing.setUsername(username);
+                        return appUserRepository.save(existing);
+                    }
+                    return existing;
+                })
+                .orElseGet(() -> appUserRepository.save(AppUser.builder()
+                        .discordId(discordId)
+                        .username(username)
+                        .build()));
+    }
+
+    private GuildSetting ensureGuildSetting(String guildId, String guildName) {
+        return guildSettingRepository.findByGuildId(guildId)
+                .map(existing -> {
+                    if (!Objects.equals(existing.getGuildName(), guildName)) {
+                        existing.setGuildName(guildName);
+                        return guildSettingRepository.save(existing);
+                    }
+                    return existing;
+                })
+                .orElseGet(() -> guildSettingRepository.save(GuildSetting.builder()
+                        .guildId(guildId)
+                        .guildName(guildName)
+                        .enabled(true)
+                        .build()));
+    }
+
+    private UserSetting ensureUserSetting(AppUser user, GuildSetting guildSetting) {
+        return userSettingRepository.findByUserIdAndGuildSettingId(user.getId(), guildSetting.getId())
+                .orElseGet(() -> userSettingRepository.save(UserSetting.builder()
+                        .user(user)
+                        .guildSetting(guildSetting)
+                        .allNoticeEnabled(false)
+                        .build()));
+    }
+
     private String formatNoticeList(String title, List<Notice> notices) {
         if (notices.isEmpty()) {
             return title + "\n\n조회된 공지가 없습니다.";
@@ -456,9 +499,11 @@ public class DiscordListener extends ListenerAdapter {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         String list = notices.stream()
                 .limit(10)
-                .map(n -> {
-                    String created = n.getCreatedAt() != null ? n.getCreatedAt().format(dateFormatter) : n.getDate();
-                    return "- [" + created + "] " + n.getTitle() + "\n  " + n.getUrl();
+                .map(notice -> {
+                    LocalDateTime baseTime = notice.getPostedAt() != null ? notice.getPostedAt() : notice.getCreatedAt();
+                    String date = baseTime != null ? baseTime.format(dateFormatter) : "날짜 없음";
+                    String departmentName = notice.getDepartment() != null ? notice.getDepartment().getDeptName() : "미분류";
+                    return "- [" + date + "] " + notice.getTitle() + " (" + departmentName + ")\n  " + notice.getUrl();
                 })
                 .collect(Collectors.joining("\n"));
 
@@ -481,10 +526,10 @@ public class DiscordListener extends ListenerAdapter {
                         Commands.slash("구독", "공지 알림 구독 관리")
                                 .addSubcommands(
                                         new SubcommandData("과", "특정 학과 공지 구독")
-                                                .addOption(OptionType.STRING, "dept", "학과명", true, true),
+                                                .addOption(OptionType.STRING, "dept", "학과 코드", true, true),
                                         new SubcommandData("취소", "특정 학과 공지 구독 취소")
-                                                .addOption(OptionType.STRING, "dept", "학과명", true, true),
-                                        new SubcommandData("전체", "전체 공지 알림 ON/OFF")
+                                                .addOption(OptionType.STRING, "dept", "학과 코드", true, true),
+                                        new SubcommandData("전체", "이 서버의 전체 공지 멘션 ON/OFF")
                                                 .addOption(OptionType.BOOLEAN, "enabled", "활성화 여부", true),
                                         new SubcommandData("목록", "내 구독 목록 조회")
                                 ),

@@ -1,105 +1,109 @@
 package com.joowest.noticebot.service;
 
 import com.joowest.noticebot.domain.GuildSetting;
-import com.joowest.noticebot.domain.UserSubscription;
+import com.joowest.noticebot.domain.Keyword;
+import com.joowest.noticebot.domain.Notification;
+import com.joowest.noticebot.domain.Notice;
+import com.joowest.noticebot.domain.Subscription;
+import com.joowest.noticebot.domain.UserSetting;
 import com.joowest.noticebot.repository.GuildSettingRepository;
-import com.joowest.noticebot.repository.UserSubscriptionRepository;
+import com.joowest.noticebot.repository.KeywordRepository;
+import com.joowest.noticebot.repository.NotificationRepository;
+import com.joowest.noticebot.repository.SubscriptionRepository;
+import com.joowest.noticebot.repository.UserSettingRepository;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.entities.channel.concrete.TextChannel;
 import org.springframework.stereotype.Service;
 
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
-
 @Service
 public class DiscordBotService {
 
-    private static final String ALL_DEPT = "__ALL__";
-
     private final JDA jda;
     private final GuildSettingRepository guildSettingRepository;
-    private final UserSubscriptionRepository userSubscriptionRepository;
+    private final SubscriptionRepository subscriptionRepository;
+    private final UserSettingRepository userSettingRepository;
+    private final KeywordRepository keywordRepository;
+    private final NotificationRepository notificationRepository;
 
     public DiscordBotService(JDA jda,
                              GuildSettingRepository guildSettingRepository,
-                             UserSubscriptionRepository userSubscriptionRepository) {
+                             SubscriptionRepository subscriptionRepository,
+                             UserSettingRepository userSettingRepository,
+                             KeywordRepository keywordRepository,
+                             NotificationRepository notificationRepository) {
         this.jda = jda;
         this.guildSettingRepository = guildSettingRepository;
-        this.userSubscriptionRepository = userSubscriptionRepository;
+        this.subscriptionRepository = subscriptionRepository;
+        this.userSettingRepository = userSettingRepository;
+        this.keywordRepository = keywordRepository;
+        this.notificationRepository = notificationRepository;
     }
 
-    // 기존 방식 (채널 ID 직접 지정)
-    public void sendMessage(String channelId, String message) {
-        TextChannel channel = jda.getTextChannelById(channelId);
-        if (channel != null) {
-            channel.sendMessage(message).queue();
-        } else {
-            System.out.println("채널을 찾을 수 없습니다: " + channelId);
+    public void sendNoticeToConfiguredGuilds(Notice notice, String bodyText, String message) {
+        if (notice.getId() == null) {
+            return;
         }
-    }
 
-    // 새로운 방식 (서버별 설정된 채널로 전송)
-    public void sendNoticeToGuild(String guildId, String message) {
-        GuildSetting setting = guildSettingRepository.findByGuildId(guildId);
-
-        if (setting != null) {
-            TextChannel channel = jda.getTextChannelById(setting.getChannelId());
-            if (channel != null) {
-                channel.sendMessage(message).queue();
-            } else {
-                System.out.println("설정된 채널을 찾을 수 없습니다: " + setting.getChannelId());
-            }
-        } else {
-            System.out.println("서버 설정을 찾을 수 없습니다: " + guildId);
-        }
-    }
-
-    public void sendNoticeToAllConfiguredChannels(String message) {
-        List<GuildSetting> allSettings = guildSettingRepository.findAll();
-
-        for (GuildSetting setting : allSettings) {
-            if (Boolean.FALSE.equals(setting.getEnabled())) {
+        for (GuildSetting guildSetting : guildSettingRepository.findByEnabledTrue()) {
+            if (guildSetting.getChannelId() == null || guildSetting.getChannelId().isBlank()) {
                 continue;
             }
-            TextChannel channel = jda.getTextChannelById(setting.getChannelId());
-            if (channel != null) {
-                channel.sendMessage(message).queue();
-            } else {
-                System.out.println("설정된 채널을 찾을 수 없습니다: " + setting.getChannelId());
+            if (notificationRepository.existsByGuildSettingIdAndNoticeId(guildSetting.getId(), notice.getId())) {
+                continue;
             }
-        }
-    }
 
-    public void sendNoticeToSubscribersByDept(String deptCode, String message) {
-        List<GuildSetting> allSettings = guildSettingRepository.findByEnabledTrue();
-
-        for (GuildSetting setting : allSettings) {
-            TextChannel channel = jda.getTextChannelById(setting.getChannelId());
+            TextChannel channel = jda.getTextChannelById(guildSetting.getChannelId());
             if (channel == null) {
-                System.out.println("설정된 채널을 찾을 수 없습니다: " + setting.getChannelId());
+                System.out.println("설정된 채널을 찾을 수 없습니다: " + guildSetting.getChannelId());
                 continue;
             }
 
-            Set<String> targetUserIds = new LinkedHashSet<>();
-            List<UserSubscription> deptSubscribers =
-                    userSubscriptionRepository.findByGuildIdAndDepartmentCodeAndEnabledTrue(setting.getGuildId(), deptCode);
-            List<UserSubscription> allSubscribers =
-                    userSubscriptionRepository.findByGuildIdAndDepartmentCodeAndEnabledTrue(setting.getGuildId(), ALL_DEPT);
-
-            deptSubscribers.forEach(s -> targetUserIds.add(s.getUserId()));
-            allSubscribers.forEach(s -> targetUserIds.add(s.getUserId()));
-
-            if (targetUserIds.isEmpty()) {
-                continue;
-            }
-
-            String mentions = targetUserIds.stream()
-                    .map(id -> "<@" + id + ">")
-                    .reduce((a, b) -> a + " " + b)
-                    .orElse("");
-
-            channel.sendMessage(mentions + "\n" + message).queue();
+            String payload = buildPayload(guildSetting, notice, bodyText, message);
+            channel.sendMessage(payload).queue(
+                    success -> notificationRepository.save(Notification.builder()
+                            .guildSetting(guildSetting)
+                            .notice(notice)
+                            .build()),
+                    failure -> System.out.println("채널 전송 실패(" + guildSetting.getGuildId() + "): " + failure.getMessage())
+            );
         }
+    }
+
+    private String buildPayload(GuildSetting guildSetting, Notice notice, String bodyText, String message) {
+        Set<String> mentions = new LinkedHashSet<>();
+
+        if (notice.getDepartment() != null) {
+            for (Subscription subscription : subscriptionRepository.findByGuildSettingIdAndDepartmentIdAndEnabledTrue(
+                    guildSetting.getId(),
+                    notice.getDepartment().getId()
+            )) {
+                mentions.add("<@" + subscription.getUser().getDiscordId() + ">");
+            }
+        }
+
+        for (UserSetting userSetting : userSettingRepository.findByGuildSettingIdAndAllNoticeEnabledTrue(guildSetting.getId())) {
+            mentions.add("<@" + userSetting.getUser().getDiscordId() + ">");
+        }
+
+        String searchableText = (notice.getTitle() + "\n" + (bodyText == null ? "" : bodyText))
+                .toLowerCase(Locale.ROOT);
+        for (Keyword keyword : keywordRepository.findByGuildSettingId(guildSetting.getId())) {
+            String value = keyword.getKeyword();
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            if (searchableText.contains(value.toLowerCase(Locale.ROOT))) {
+                mentions.add("<@" + keyword.getUser().getDiscordId() + ">");
+            }
+        }
+
+        if (mentions.isEmpty()) {
+            return message;
+        }
+
+        return String.join(" ", mentions) + "\n" + message;
     }
 }
