@@ -13,12 +13,13 @@ public class NoticeScheduler {
         this.crawlerService = crawlerService;
     }
 
-    // 🔥 5분마다 실행 (테스트용이면 10000으로 바꿔도 됨)
-    @Scheduled(fixedRate = 300000)
+    @Scheduled(
+            fixedDelayString = "${notice.crawler.check-interval-ms:12000}",
+            initialDelayString = "${notice.crawler.initial-delay-ms:5000}"
+    )
     public void run() {
         try {
-            System.out.println("공지 체크 중...");
-            crawlerService.checkLatestNotice();
+            crawlerService.checkNextNotice();
         } catch (Exception e) {
             e.printStackTrace();
         }

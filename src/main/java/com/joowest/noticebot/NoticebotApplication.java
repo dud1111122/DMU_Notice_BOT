@@ -3,7 +3,8 @@ package com.joowest.noticebot;
 import com.joowest.noticebot.listener.DiscordListener;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
-import net.dv8tion.jda.api.requests.GatewayIntent;
+import net.dv8tion.jda.api.utils.ChunkingFilter;
+import net.dv8tion.jda.api.utils.MemberCachePolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -21,8 +22,9 @@ public class NoticebotApplication {
 
     @Bean
     public JDA jda(@Value("${discord.token}") String discordToken, DiscordListener discordListener) throws LoginException, InterruptedException {
-        JDA jda = JDABuilder.createDefault(discordToken)
-                .enableIntents(GatewayIntent.GUILD_MESSAGES)
+        JDA jda = JDABuilder.createLight(discordToken)
+                .setChunkingFilter(ChunkingFilter.NONE)
+                .setMemberCachePolicy(MemberCachePolicy.NONE)
                 .addEventListeners(discordListener)
                 .build()
                 .awaitReady();

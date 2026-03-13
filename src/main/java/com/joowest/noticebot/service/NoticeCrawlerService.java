@@ -20,6 +20,7 @@ import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -32,95 +33,136 @@ public class NoticeCrawlerService {
     private final GlobalNoticeSourceRepository globalNoticeSourceRepository;
     private final GeminiService geminiService;
     private final DiscordBotService discordBotService;
+    private final int requestTimeoutMs;
+    private int crawlCursor = 0;
 
     public NoticeCrawlerService(NoticeRepository noticeRepository,
                                 DepartmentRepository departmentRepository,
                                 GlobalNoticeSourceRepository globalNoticeSourceRepository,
                                 GeminiService geminiService,
-                                DiscordBotService discordBotService) {
+                                DiscordBotService discordBotService,
+                                @Value("${notice.crawler.request-timeout-ms:7000}") int requestTimeoutMs) {
         this.noticeRepository = noticeRepository;
         this.departmentRepository = departmentRepository;
         this.globalNoticeSourceRepository = globalNoticeSourceRepository;
         this.geminiService = geminiService;
         this.discordBotService = discordBotService;
+        this.requestTimeoutMs = requestTimeoutMs;
     }
 
     public void checkLatestNotice() throws Exception {
-        for (GlobalNoticeSource source : globalNoticeSourceRepository.findByEnabledTrueOrderBySortOrderAscSourceNameAsc()) {
-            if (source.getNoticeUrl() == null || source.getNoticeUrl().isBlank()) {
-                continue;
-            }
+        for (GlobalNoticeSource source : getActiveGlobalSources()) {
             crawlGlobalNoticeSource(source);
         }
 
-        List<Department> departments = departmentRepository.findByEnabledTrueOrderBySortOrderAscDeptNameAsc();
-        for (Department department : departments) {
-            if (department.getNoticeUrl() == null || department.getNoticeUrl().isBlank()) {
-                continue;
-            }
+        for (Department department : getActiveDepartments()) {
             crawlDepartmentNotice(department);
         }
     }
 
+    public synchronized void checkNextNotice() throws Exception {
+        List<GlobalNoticeSource> globalSources = getActiveGlobalSources();
+        List<Department> departments = getActiveDepartments();
+
+        int totalTargets = globalSources.size() + departments.size();
+        if (totalTargets == 0) {
+            return;
+        }
+
+        int currentIndex = Math.floorMod(crawlCursor, totalTargets);
+        crawlCursor = (currentIndex + 1) % totalTargets;
+
+        if (currentIndex < globalSources.size()) {
+            crawlGlobalNoticeSource(globalSources.get(currentIndex));
+            return;
+        }
+
+        int departmentIndex = currentIndex - globalSources.size();
+        crawlDepartmentNotice(departments.get(departmentIndex));
+    }
+
     private void crawlGlobalNoticeSource(GlobalNoticeSource source) throws Exception {
-        NoticeCandidate candidate = loadLatestNoticeCandidate(source.getNoticeUrl());
-        if (candidate == null) {
+        NoticeSummary summary = loadLatestNoticeSummary(source.getNoticeUrl());
+        if (summary == null) {
             return;
         }
 
-        String externalId = extractExternalId(candidate.detailUrl());
-        if (noticeRepository.existsByGlobalNoticeSourceIdAndExternalId(source.getId(), externalId)) {
+        if (Objects.equals(source.getLastSeenExternalId(), summary.externalId())) {
             return;
         }
 
-        String summary = candidate.bodyText().isBlank() ? "" : geminiService.summarize(candidate.bodyText());
+        if (noticeRepository.existsByGlobalNoticeSourceIdAndExternalId(source.getId(), summary.externalId())) {
+            updateLastSeenExternalId(source, summary.externalId());
+            return;
+        }
+
+        NoticeDetail detail = loadNoticeDetail(summary);
+        if (detail == null) {
+            return;
+        }
+
+        String noticeSummary = detail.bodyText().isBlank() ? "" : geminiService.summarize(detail.bodyText());
         Notice savedNotice = noticeRepository.save(Notice.builder()
                 .globalNoticeSource(source)
                 .noticeType(NoticeType.GLOBAL)
-                .externalId(externalId)
-                .title(candidate.title())
-                .url(candidate.detailUrl())
-                .summary(summary)
-                .postedAt(parsePostedAt(candidate.rawDate()))
+                .externalId(summary.externalId())
+                .title(summary.title())
+                .url(summary.detailUrl())
+                .summary(noticeSummary)
+                .postedAt(parsePostedAt(summary.rawDate()))
                 .build());
 
-        String message = buildGlobalMessage(source, candidate.title(), candidate.rawDate(), candidate.detailUrl(), summary);
-        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, candidate.bodyText(), message);
+        updateLastSeenExternalId(source, summary.externalId());
 
-        System.out.println("학교 전체공지 저장 및 채널 전송 완료: " + source.getSourceCode() + " / " + candidate.title());
+        String message = buildGlobalMessage(source, summary.title(), summary.rawDate(), summary.detailUrl(), noticeSummary);
+        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, detail.bodyText(), message);
+
+        System.out.println("학교 전체공지 저장 및 채널 전송 완료: " + source.getSourceCode() + " / " + summary.title());
     }
 
     private void crawlDepartmentNotice(Department department) throws Exception {
-        NoticeCandidate candidate = loadLatestNoticeCandidate(department.getNoticeUrl());
-        if (candidate == null) {
+        NoticeSummary summary = loadLatestNoticeSummary(department.getNoticeUrl());
+        if (summary == null) {
             return;
         }
 
-        String externalId = extractExternalId(candidate.detailUrl());
-        if (noticeRepository.existsByDepartmentIdAndExternalId(department.getId(), externalId)) {
+        if (Objects.equals(department.getLastSeenExternalId(), summary.externalId())) {
             return;
         }
 
-        String summary = candidate.bodyText().isBlank() ? "" : geminiService.summarize(candidate.bodyText());
+        if (noticeRepository.existsByDepartmentIdAndExternalId(department.getId(), summary.externalId())) {
+            updateLastSeenExternalId(department, summary.externalId());
+            return;
+        }
+
+        NoticeDetail detail = loadNoticeDetail(summary);
+        if (detail == null) {
+            return;
+        }
+
+        String noticeSummary = detail.bodyText().isBlank() ? "" : geminiService.summarize(detail.bodyText());
         Notice savedNotice = noticeRepository.save(Notice.builder()
                 .department(department)
                 .noticeType(NoticeType.DEPARTMENT)
-                .externalId(externalId)
-                .title(candidate.title())
-                .url(candidate.detailUrl())
-                .summary(summary)
-                .postedAt(parsePostedAt(candidate.rawDate()))
+                .externalId(summary.externalId())
+                .title(summary.title())
+                .url(summary.detailUrl())
+                .summary(noticeSummary)
+                .postedAt(parsePostedAt(summary.rawDate()))
                 .build());
 
-        String message = buildDepartmentMessage(department, candidate.title(), candidate.rawDate(), candidate.detailUrl(), summary);
-        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, candidate.bodyText(), message);
+        updateLastSeenExternalId(department, summary.externalId());
 
-        System.out.println("학과 공지 저장 및 채널 전송 완료: " + department.getDeptCode() + " / " + candidate.title());
+        String message = buildDepartmentMessage(department, summary.title(), summary.rawDate(), summary.detailUrl(), noticeSummary);
+        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, detail.bodyText(), message);
+
+        System.out.println("학과 공지 저장 및 채널 전송 완료: " + department.getDeptCode() + " / " + summary.title());
     }
 
-    private NoticeCandidate loadLatestNoticeCandidate(String noticeUrl) throws Exception {
+    private NoticeSummary loadLatestNoticeSummary(String noticeUrl) throws Exception {
         Document listDoc = Jsoup.connect(noticeUrl)
                 .userAgent("Mozilla/5.0")
+                .timeout(requestTimeoutMs)
                 .get();
 
         Element firstRow = listDoc.selectFirst("tbody tr");
@@ -143,13 +185,18 @@ public class NoticeCrawlerService {
             return null;
         }
 
-        Document detailDoc = Jsoup.connect(detailUrl)
+        return new NoticeSummary(title, rawDate, detailUrl, extractExternalId(detailUrl));
+    }
+
+    private NoticeDetail loadNoticeDetail(NoticeSummary summary) throws Exception {
+        Document detailDoc = Jsoup.connect(summary.detailUrl())
                 .userAgent("Mozilla/5.0")
+                .timeout(requestTimeoutMs)
                 .get();
 
         Element contentDiv = detailDoc.selectFirst("div.view-con, div#bbs-content, div.board-view-content");
         String bodyText = contentDiv != null ? contentDiv.text() : "";
-        return new NoticeCandidate(title, rawDate, detailUrl, bodyText);
+        return new NoticeDetail(bodyText);
     }
 
     private String buildGlobalMessage(GlobalNoticeSource source, String title, String rawDate, String detailUrl, String summary) {
@@ -268,6 +315,37 @@ public class NoticeCrawlerService {
         return numbers[numbers.length - 1];
     }
 
-    private record NoticeCandidate(String title, String rawDate, String detailUrl, String bodyText) {
+    private void updateLastSeenExternalId(GlobalNoticeSource source, String externalId) {
+        if (Objects.equals(source.getLastSeenExternalId(), externalId)) {
+            return;
+        }
+        source.setLastSeenExternalId(externalId);
+        globalNoticeSourceRepository.save(source);
+    }
+
+    private void updateLastSeenExternalId(Department department, String externalId) {
+        if (Objects.equals(department.getLastSeenExternalId(), externalId)) {
+            return;
+        }
+        department.setLastSeenExternalId(externalId);
+        departmentRepository.save(department);
+    }
+
+    private List<GlobalNoticeSource> getActiveGlobalSources() {
+        return globalNoticeSourceRepository.findByEnabledTrueOrderBySortOrderAscSourceNameAsc().stream()
+                .filter(source -> source.getNoticeUrl() != null && !source.getNoticeUrl().isBlank())
+                .toList();
+    }
+
+    private List<Department> getActiveDepartments() {
+        return departmentRepository.findByEnabledTrueOrderBySortOrderAscDeptNameAsc().stream()
+                .filter(department -> department.getNoticeUrl() != null && !department.getNoticeUrl().isBlank())
+                .toList();
+    }
+
+    private record NoticeSummary(String title, String rawDate, String detailUrl, String externalId) {
+    }
+
+    private record NoticeDetail(String bodyText) {
     }
 }
