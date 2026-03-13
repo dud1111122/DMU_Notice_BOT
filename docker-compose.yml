@@ -23,12 +23,11 @@ services:
     container_name: notice-app
     env_file:
       - .env
-    ports:
-      - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
     environment:
+      JAVA_TOOL_OPTIONS: "-XX:InitialRAMPercentage=15.0 -XX:MaxRAMPercentage=50.0 -XX:+UseStringDeduplication -XX:+ExitOnOutOfMemoryError"
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME}
       SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD}

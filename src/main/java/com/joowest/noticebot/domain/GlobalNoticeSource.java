@@ -34,6 +34,9 @@ public class GlobalNoticeSource {
     @Column(name = "notice_url", nullable = false, columnDefinition = "TEXT")
     private String noticeUrl;
 
+    @Column(name = "last_seen_external_id")
+    private String lastSeenExternalId;
+
     @Column(nullable = false)
     private Boolean enabled;
 
