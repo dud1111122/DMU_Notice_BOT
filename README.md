@@ -7,6 +7,12 @@
 </p>
 
 <p align="center">
+  <a href="https://discord.com/oauth2/authorize?client_id=1478972771483783229&permissions=19456&integration_type=0&scope=bot+applications.commands">
+    <img src="https://img.shields.io/badge/Invite_NoticeBot_to_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Invite NoticeBot to Discord" />
+  </a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/Java-17-007396?style=flat-square&logo=openjdk&logoColor=white" />
   <img src="https://img.shields.io/badge/Spring_Boot-3.5-6DB33F?style=flat-square&logo=springboot&logoColor=white" />
   <img src="https://img.shields.io/badge/JDA-Discord_Bot-5865F2?style=flat-square&logo=discord&logoColor=white" />
