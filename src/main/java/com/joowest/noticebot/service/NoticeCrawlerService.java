@@ -1,8 +1,11 @@
 package com.joowest.noticebot.service;
 
 import com.joowest.noticebot.domain.Department;
+import com.joowest.noticebot.domain.GlobalNoticeSource;
 import com.joowest.noticebot.domain.Notice;
+import com.joowest.noticebot.domain.NoticeType;
 import com.joowest.noticebot.repository.DepartmentRepository;
+import com.joowest.noticebot.repository.GlobalNoticeSourceRepository;
 import com.joowest.noticebot.repository.NoticeRepository;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -26,58 +29,118 @@ public class NoticeCrawlerService {
 
     private final NoticeRepository noticeRepository;
     private final DepartmentRepository departmentRepository;
+    private final GlobalNoticeSourceRepository globalNoticeSourceRepository;
     private final GeminiService geminiService;
     private final DiscordBotService discordBotService;
 
     public NoticeCrawlerService(NoticeRepository noticeRepository,
                                 DepartmentRepository departmentRepository,
+                                GlobalNoticeSourceRepository globalNoticeSourceRepository,
                                 GeminiService geminiService,
                                 DiscordBotService discordBotService) {
         this.noticeRepository = noticeRepository;
         this.departmentRepository = departmentRepository;
+        this.globalNoticeSourceRepository = globalNoticeSourceRepository;
         this.geminiService = geminiService;
         this.discordBotService = discordBotService;
     }
 
     public void checkLatestNotice() throws Exception {
+        for (GlobalNoticeSource source : globalNoticeSourceRepository.findByEnabledTrueOrderBySortOrderAscSourceNameAsc()) {
+            if (source.getNoticeUrl() == null || source.getNoticeUrl().isBlank()) {
+                continue;
+            }
+            crawlGlobalNoticeSource(source);
+        }
+
         List<Department> departments = departmentRepository.findByEnabledTrueOrderBySortOrderAscDeptNameAsc();
         for (Department department : departments) {
             if (department.getNoticeUrl() == null || department.getNoticeUrl().isBlank()) {
                 continue;
             }
-
-            crawlLatestNoticeForDepartment(department);
+            crawlDepartmentNotice(department);
         }
     }
 
-    private void crawlLatestNoticeForDepartment(Department department) throws Exception {
-        Document listDoc = Jsoup.connect(department.getNoticeUrl())
+    private void crawlGlobalNoticeSource(GlobalNoticeSource source) throws Exception {
+        NoticeCandidate candidate = loadLatestNoticeCandidate(source.getNoticeUrl());
+        if (candidate == null) {
+            return;
+        }
+
+        String externalId = extractExternalId(candidate.detailUrl());
+        if (noticeRepository.existsByGlobalNoticeSourceIdAndExternalId(source.getId(), externalId)) {
+            return;
+        }
+
+        String summary = candidate.bodyText().isBlank() ? "" : geminiService.summarize(candidate.bodyText());
+        Notice savedNotice = noticeRepository.save(Notice.builder()
+                .globalNoticeSource(source)
+                .noticeType(NoticeType.GLOBAL)
+                .externalId(externalId)
+                .title(candidate.title())
+                .url(candidate.detailUrl())
+                .summary(summary)
+                .postedAt(parsePostedAt(candidate.rawDate()))
+                .build());
+
+        String message = buildGlobalMessage(source, candidate.title(), candidate.rawDate(), candidate.detailUrl(), summary);
+        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, candidate.bodyText(), message);
+
+        System.out.println("학교 전체공지 저장 및 채널 전송 완료: " + source.getSourceCode() + " / " + candidate.title());
+    }
+
+    private void crawlDepartmentNotice(Department department) throws Exception {
+        NoticeCandidate candidate = loadLatestNoticeCandidate(department.getNoticeUrl());
+        if (candidate == null) {
+            return;
+        }
+
+        String externalId = extractExternalId(candidate.detailUrl());
+        if (noticeRepository.existsByDepartmentIdAndExternalId(department.getId(), externalId)) {
+            return;
+        }
+
+        String summary = candidate.bodyText().isBlank() ? "" : geminiService.summarize(candidate.bodyText());
+        Notice savedNotice = noticeRepository.save(Notice.builder()
+                .department(department)
+                .noticeType(NoticeType.DEPARTMENT)
+                .externalId(externalId)
+                .title(candidate.title())
+                .url(candidate.detailUrl())
+                .summary(summary)
+                .postedAt(parsePostedAt(candidate.rawDate()))
+                .build());
+
+        String message = buildDepartmentMessage(department, candidate.title(), candidate.rawDate(), candidate.detailUrl(), summary);
+        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, candidate.bodyText(), message);
+
+        System.out.println("학과 공지 저장 및 채널 전송 완료: " + department.getDeptCode() + " / " + candidate.title());
+    }
+
+    private NoticeCandidate loadLatestNoticeCandidate(String noticeUrl) throws Exception {
+        Document listDoc = Jsoup.connect(noticeUrl)
                 .userAgent("Mozilla/5.0")
                 .get();
 
         Element firstRow = listDoc.selectFirst("tbody tr");
         if (firstRow == null) {
-            return;
+            return null;
         }
 
         Element link = firstRow.selectFirst("td.td-subject a, td a");
         if (link == null) {
-            return;
+            return null;
         }
 
-        String title = link.text().trim();
+        String title = extractTitle(link);
         String rawDate = firstRow.selectFirst("td.td-date") != null
                 ? firstRow.selectFirst("td.td-date").text().trim()
                 : "";
 
         String detailUrl = resolveDetailUrl(link);
         if (detailUrl == null || detailUrl.isBlank()) {
-            return;
-        }
-
-        String externalId = extractExternalId(detailUrl);
-        if (noticeRepository.existsByDepartmentIdAndExternalId(department.getId(), externalId)) {
-            return;
+            return null;
         }
 
         Document detailDoc = Jsoup.connect(detailUrl)
@@ -86,26 +149,27 @@ public class NoticeCrawlerService {
 
         Element contentDiv = detailDoc.selectFirst("div.view-con, div#bbs-content, div.board-view-content");
         String bodyText = contentDiv != null ? contentDiv.text() : "";
-        String summary = bodyText.isBlank() ? "" : geminiService.summarize(bodyText);
-
-        Notice savedNotice = noticeRepository.save(Notice.builder()
-                .department(department)
-                .externalId(externalId)
-                .title(title)
-                .url(detailUrl)
-                .summary(summary)
-                .postedAt(parsePostedAt(rawDate))
-                .build());
-
-        String message = buildMessage(department, title, rawDate, detailUrl, summary);
-        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, bodyText, message);
-
-        System.out.println("공지 저장 및 채널 전송 완료: " + department.getDeptCode() + " / " + title);
+        return new NoticeCandidate(title, rawDate, detailUrl, bodyText);
     }
 
-    private String buildMessage(Department department, String title, String rawDate, String detailUrl, String summary) {
+    private String buildGlobalMessage(GlobalNoticeSource source, String title, String rawDate, String detailUrl, String summary) {
         StringBuilder sb = new StringBuilder();
-        sb.append("📢 **[새 공지]**\n\n");
+        sb.append("📢 **[학교 전체공지]**\n\n");
+        sb.append("🏫 분류: ").append(source.getSourceName()).append("\n");
+        sb.append("📌 제목: ").append(title).append("\n");
+        if (rawDate != null && !rawDate.isBlank()) {
+            sb.append("📅 작성일: ").append(rawDate).append("\n");
+        }
+        if (summary != null && !summary.isBlank() && !"ERROR".equals(summary)) {
+            sb.append("\n📝 요약:\n").append(summary).append("\n");
+        }
+        sb.append("\n🔗 ").append(detailUrl);
+        return sb.toString();
+    }
+
+    private String buildDepartmentMessage(Department department, String title, String rawDate, String detailUrl, String summary) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📢 **[학과 공지]**\n\n");
         sb.append("🏫 학과: ").append(department.getDeptName()).append("\n");
         sb.append("📌 제목: ").append(title).append("\n");
         if (rawDate != null && !rawDate.isBlank()) {
@@ -116,6 +180,14 @@ public class NoticeCrawlerService {
         }
         sb.append("\n🔗 ").append(detailUrl);
         return sb.toString();
+    }
+
+    private String extractTitle(Element link) {
+        Element strong = link.selectFirst("strong");
+        if (strong != null && !strong.text().isBlank()) {
+            return strong.text().trim();
+        }
+        return link.text().trim();
     }
 
     private LocalDateTime parsePostedAt(String rawDate) {
@@ -194,5 +266,8 @@ public class NoticeCrawlerService {
             return Integer.toHexString(Objects.hash(detailUrl));
         }
         return numbers[numbers.length - 1];
+    }
+
+    private record NoticeCandidate(String title, String rawDate, String detailUrl, String bodyText) {
     }
 }

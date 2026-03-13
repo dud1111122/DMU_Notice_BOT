@@ -4,6 +4,7 @@ import com.joowest.noticebot.domain.GuildSetting;
 import com.joowest.noticebot.domain.Keyword;
 import com.joowest.noticebot.domain.Notification;
 import com.joowest.noticebot.domain.Notice;
+import com.joowest.noticebot.domain.NoticeType;
 import com.joowest.noticebot.domain.Subscription;
 import com.joowest.noticebot.domain.UserSetting;
 import com.joowest.noticebot.repository.GuildSettingRepository;
@@ -62,6 +63,10 @@ public class DiscordBotService {
             }
 
             String payload = buildPayload(guildSetting, notice, bodyText, message);
+            if (payload == null) {
+                continue;
+            }
+
             channel.sendMessage(payload).queue(
                     success -> notificationRepository.save(Notification.builder()
                             .guildSetting(guildSetting)
@@ -74,8 +79,14 @@ public class DiscordBotService {
 
     private String buildPayload(GuildSetting guildSetting, Notice notice, String bodyText, String message) {
         Set<String> mentions = new LinkedHashSet<>();
+        String searchableText = (notice.getTitle() + "\n" + (bodyText == null ? "" : bodyText))
+                .toLowerCase(Locale.ROOT);
 
-        if (notice.getDepartment() != null) {
+        if (notice.getNoticeType() == NoticeType.GLOBAL) {
+            for (UserSetting userSetting : userSettingRepository.findByGuildSettingIdAndGlobalNoticeEnabledTrue(guildSetting.getId())) {
+                mentions.add("<@" + userSetting.getUser().getDiscordId() + ">");
+            }
+        } else if (notice.getNoticeType() == NoticeType.DEPARTMENT && notice.getDepartment() != null) {
             for (Subscription subscription : subscriptionRepository.findByGuildSettingIdAndDepartmentIdAndEnabledTrue(
                     guildSetting.getId(),
                     notice.getDepartment().getId()
@@ -84,12 +95,6 @@ public class DiscordBotService {
             }
         }
 
-        for (UserSetting userSetting : userSettingRepository.findByGuildSettingIdAndAllNoticeEnabledTrue(guildSetting.getId())) {
-            mentions.add("<@" + userSetting.getUser().getDiscordId() + ">");
-        }
-
-        String searchableText = (notice.getTitle() + "\n" + (bodyText == null ? "" : bodyText))
-                .toLowerCase(Locale.ROOT);
         for (Keyword keyword : keywordRepository.findByGuildSettingId(guildSetting.getId())) {
             String value = keyword.getKeyword();
             if (value == null || value.isBlank()) {
@@ -101,7 +106,7 @@ public class DiscordBotService {
         }
 
         if (mentions.isEmpty()) {
-            return message;
+            return null;
         }
 
         return String.join(" ", mentions) + "\n" + message;

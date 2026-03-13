@@ -43,8 +43,8 @@ public class UserSetting {
     @JoinColumn(name = "guild_setting_id", nullable = false)
     private GuildSetting guildSetting;
 
-    @Column(name = "all_notice_enabled", nullable = false)
-    private Boolean allNoticeEnabled;
+    @Column(name = "global_notice_enabled", nullable = false)
+    private Boolean globalNoticeEnabled;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -54,8 +54,8 @@ public class UserSetting {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
         }
-        if (allNoticeEnabled == null) {
-            allNoticeEnabled = false;
+        if (globalNoticeEnabled == null) {
+            globalNoticeEnabled = true;
         }
     }
 }

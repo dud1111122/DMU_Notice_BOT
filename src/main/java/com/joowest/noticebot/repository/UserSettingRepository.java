@@ -8,5 +8,5 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface UserSettingRepository extends JpaRepository<UserSetting, Long> {
     Optional<UserSetting> findByUserIdAndGuildSettingId(Long userId, Long guildSettingId);
-    java.util.List<UserSetting> findByGuildSettingIdAndAllNoticeEnabledTrue(Long guildSettingId);
+    java.util.List<UserSetting> findByGuildSettingIdAndGlobalNoticeEnabledTrue(Long guildSettingId);
 }

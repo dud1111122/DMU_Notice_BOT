@@ -157,10 +157,7 @@ public class DiscordListener extends ListenerAdapter {
                 }
 
                 Map<String, Long> grouped = notices.stream()
-                        .collect(Collectors.groupingBy(
-                                notice -> notice.getDepartment() != null ? notice.getDepartment().getDeptName() : "미분류",
-                                Collectors.counting()
-                        ));
+                        .collect(Collectors.groupingBy(this::noticeBucket, Collectors.counting()));
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("🔹 오늘 공지 요약\n\n");
@@ -217,7 +214,7 @@ public class DiscordListener extends ListenerAdapter {
                 subscription.setEnabled(true);
                 subscriptionRepository.save(subscription);
 
-                event.reply("✅ 구독 등록 완료\n\n`" + department.getDeptName() + "` 공지를 구독합니다.")
+                event.reply("✅ 구독 등록 완료\n\n이 서버에서 `" + department.getDeptName() + "` 학과 공지를 구독합니다.")
                         .setEphemeral(true)
                         .queue();
             }
@@ -243,7 +240,7 @@ public class DiscordListener extends ListenerAdapter {
 
                 subscriptionRepository.delete(existing.get());
 
-                event.reply("🗑 구독 취소 완료\n\n`" + department.getDeptName() + "` 공지 구독을 해제했습니다.")
+                event.reply("🗑 구독 취소 완료\n\n이 서버에서 `" + department.getDeptName() + "` 학과 공지를 해제했습니다.")
                         .setEphemeral(true)
                         .queue();
             }
@@ -257,10 +254,10 @@ public class DiscordListener extends ListenerAdapter {
 
                 boolean enabled = enabledOption.getAsBoolean();
                 UserSetting userSetting = ensureUserSetting(user, guildSetting);
-                userSetting.setAllNoticeEnabled(enabled);
+                userSetting.setGlobalNoticeEnabled(enabled);
                 userSettingRepository.save(userSetting);
 
-                event.reply("✅ 이 서버의 전체 공지 멘션이 `" + (enabled ? "ON" : "OFF") + "`으로 설정되었습니다.")
+                event.reply("✅ 이 서버의 학교 전체공지 수신이 `" + (enabled ? "ON" : "OFF") + "`으로 설정되었습니다.")
                         .setEphemeral(true)
                         .queue();
             }
@@ -276,8 +273,8 @@ public class DiscordListener extends ListenerAdapter {
 
                 StringBuilder sb = new StringBuilder();
                 sb.append("📚 내 구독 목록\n\n");
-                sb.append("- 전체 멘션: ")
-                        .append(Boolean.TRUE.equals(userSetting.getAllNoticeEnabled()) ? "ON" : "OFF");
+                sb.append("- 학교 전체공지: ")
+                        .append(Boolean.TRUE.equals(userSetting.getGlobalNoticeEnabled()) ? "ON" : "OFF");
 
                 if (!list.isBlank()) {
                     sb.append("\n").append(list);
@@ -429,9 +426,9 @@ public class DiscordListener extends ListenerAdapter {
                 /공지 학과 dept
                 /공지 요약
 
-                /구독 과 dept
-                /구독 취소 dept
-                /구독 전체 enabled
+                /구독 전체 enabled   -> 학교 전체공지 수신 ON/OFF
+                /구독 과 dept        -> 특정 학과 공지 구독
+                /구독 취소 dept      -> 특정 학과 공지 구독 취소
                 /구독 목록
 
                 /키워드 추가 keyword
@@ -487,7 +484,7 @@ public class DiscordListener extends ListenerAdapter {
                 .orElseGet(() -> userSettingRepository.save(UserSetting.builder()
                         .user(user)
                         .guildSetting(guildSetting)
-                        .allNoticeEnabled(false)
+                        .globalNoticeEnabled(true)
                         .build()));
     }
 
@@ -502,12 +499,21 @@ public class DiscordListener extends ListenerAdapter {
                 .map(notice -> {
                     LocalDateTime baseTime = notice.getPostedAt() != null ? notice.getPostedAt() : notice.getCreatedAt();
                     String date = baseTime != null ? baseTime.format(dateFormatter) : "날짜 없음";
-                    String departmentName = notice.getDepartment() != null ? notice.getDepartment().getDeptName() : "미분류";
-                    return "- [" + date + "] " + notice.getTitle() + " (" + departmentName + ")\n  " + notice.getUrl();
+                    return "- [" + date + "] " + notice.getTitle() + " (" + noticeBucket(notice) + ")\n  " + notice.getUrl();
                 })
                 .collect(Collectors.joining("\n"));
 
         return title + "\n\n" + list;
+    }
+
+    private String noticeBucket(Notice notice) {
+        if (notice.getDepartment() != null) {
+            return notice.getDepartment().getDeptName();
+        }
+        if (notice.getGlobalNoticeSource() != null) {
+            return notice.getGlobalNoticeSource().getSourceName();
+        }
+        return "미분류";
     }
 
     public void registerSlashCommands(JDA jda) {
@@ -529,7 +535,7 @@ public class DiscordListener extends ListenerAdapter {
                                                 .addOption(OptionType.STRING, "dept", "학과 코드", true, true),
                                         new SubcommandData("취소", "특정 학과 공지 구독 취소")
                                                 .addOption(OptionType.STRING, "dept", "학과 코드", true, true),
-                                        new SubcommandData("전체", "이 서버의 전체 공지 멘션 ON/OFF")
+                                        new SubcommandData("전체", "학교 전체공지 수신 ON/OFF")
                                                 .addOption(OptionType.BOOLEAN, "enabled", "활성화 여부", true),
                                         new SubcommandData("목록", "내 구독 목록 조회")
                                 ),

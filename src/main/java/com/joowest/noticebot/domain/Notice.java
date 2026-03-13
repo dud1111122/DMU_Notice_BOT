@@ -2,6 +2,8 @@ package com.joowest.noticebot.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -22,8 +24,8 @@ import lombok.Setter;
 @Table(
         name = "notices",
         uniqueConstraints = @UniqueConstraint(
-                name = "uniq_department_external_notice",
-                columnNames = {"department_id", "external_id"}
+                name = "uniq_notice_url",
+                columnNames = {"url"}
         )
 )
 @Getter
@@ -40,6 +42,14 @@ public class Notice {
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "department_id")
     private Department department;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "global_notice_source_id")
+    private GlobalNoticeSource globalNoticeSource;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notice_type", nullable = false, length = 20)
+    private NoticeType noticeType;
 
     @Column(name = "external_id", nullable = false)
     private String externalId;
