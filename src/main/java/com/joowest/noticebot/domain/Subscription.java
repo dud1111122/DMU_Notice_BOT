@@ -2,48 +2,55 @@ package com.joowest.noticebot.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(
-        name = "user_subscriptions",
+        name = "subscriptions",
         uniqueConstraints = @UniqueConstraint(
-                name = "uniq_user_guild_department",
-                columnNames = {"user_id", "guild_id", "department_code"}
+                name = "uniq_user_guild_department_subscription",
+                columnNames = {"user_id", "guild_setting_id", "department_id"}
         )
 )
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class UserSubscription {
+public class Subscription {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
-    private String userId;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private AppUser user;
 
-    @Column(name = "guild_id", nullable = false)
-    private String guildId;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "guild_setting_id", nullable = false)
+    private GuildSetting guildSetting;
 
-    @Column(name = "department_code", nullable = false)
-    private String departmentCode;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "department_id", nullable = false)
+    private Department department;
 
     @Column(nullable = false)
     private Boolean enabled;
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist

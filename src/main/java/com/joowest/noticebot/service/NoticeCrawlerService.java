@@ -4,17 +4,20 @@ import com.joowest.noticebot.domain.Department;
 import com.joowest.noticebot.domain.Notice;
 import com.joowest.noticebot.repository.DepartmentRepository;
 import com.joowest.noticebot.repository.NoticeRepository;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDate;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Service
 public class NoticeCrawlerService {
@@ -24,18 +27,15 @@ public class NoticeCrawlerService {
     private final NoticeRepository noticeRepository;
     private final DepartmentRepository departmentRepository;
     private final GeminiService geminiService;
-    private final DeadlineParserService deadlineParserService;
     private final DiscordBotService discordBotService;
 
     public NoticeCrawlerService(NoticeRepository noticeRepository,
                                 DepartmentRepository departmentRepository,
                                 GeminiService geminiService,
-                                DeadlineParserService deadlineParserService,
                                 DiscordBotService discordBotService) {
         this.noticeRepository = noticeRepository;
         this.departmentRepository = departmentRepository;
         this.geminiService = geminiService;
-        this.deadlineParserService = deadlineParserService;
         this.discordBotService = discordBotService;
     }
 
@@ -66,7 +66,7 @@ public class NoticeCrawlerService {
         }
 
         String title = link.text().trim();
-        String date = firstRow.selectFirst("td.td-date") != null
+        String rawDate = firstRow.selectFirst("td.td-date") != null
                 ? firstRow.selectFirst("td.td-date").text().trim()
                 : "";
 
@@ -75,10 +75,8 @@ public class NoticeCrawlerService {
             return;
         }
 
-        String postId = extractPostId(detailUrl);
-        String noticeId = department.getDeptCode() + "_" + postId;
-
-        if (noticeRepository.existsById(noticeId)) {
+        String externalId = extractExternalId(detailUrl);
+        if (noticeRepository.existsByDepartmentIdAndExternalId(department.getId(), externalId)) {
             return;
         }
 
@@ -88,35 +86,70 @@ public class NoticeCrawlerService {
 
         Element contentDiv = detailDoc.selectFirst("div.view-con, div#bbs-content, div.board-view-content");
         String bodyText = contentDiv != null ? contentDiv.text() : "";
+        String summary = bodyText.isBlank() ? "" : geminiService.summarize(bodyText);
 
-        String summary = geminiService.summarize(bodyText);
-        LocalDate deadline = deadlineParserService.extractDeadline(bodyText);
+        Notice savedNotice = noticeRepository.save(Notice.builder()
+                .department(department)
+                .externalId(externalId)
+                .title(title)
+                .url(detailUrl)
+                .summary(summary)
+                .postedAt(parsePostedAt(rawDate))
+                .build());
 
-        String message =
-                "📢 **[새 공지]**\n\n" +
-                        "🏫 학과: " + department.getDeptName() + "\n" +
-                        "📌 제목: " + title + "\n" +
-                        (!date.isBlank() ? "📅 작성일: " + date + "\n" : "") +
-                        (deadline != null ? "⏰ 마감일: " + deadline + "\n" : "") +
-                        "\n📝 요약:\n" +
-                        summary + "\n\n" +
-                        "🔗 " + detailUrl;
+        String message = buildMessage(department, title, rawDate, detailUrl, summary);
+        discordBotService.sendNoticeToConfiguredGuilds(savedNotice, bodyText, message);
 
-        discordBotService.sendNoticeToSubscribersByDept(department.getDeptCode(), message);
+        System.out.println("공지 저장 및 채널 전송 완료: " + department.getDeptCode() + " / " + title);
+    }
 
-        Notice notice = new Notice(
-                noticeId,
-                title,
-                date,
-                detailUrl,
-                summary,
-                department.getDeptCode(),
-                department.getDeptName(),
-                deadline
+    private String buildMessage(Department department, String title, String rawDate, String detailUrl, String summary) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("📢 **[새 공지]**\n\n");
+        sb.append("🏫 학과: ").append(department.getDeptName()).append("\n");
+        sb.append("📌 제목: ").append(title).append("\n");
+        if (rawDate != null && !rawDate.isBlank()) {
+            sb.append("📅 작성일: ").append(rawDate).append("\n");
+        }
+        if (summary != null && !summary.isBlank() && !"ERROR".equals(summary)) {
+            sb.append("\n📝 요약:\n").append(summary).append("\n");
+        }
+        sb.append("\n🔗 ").append(detailUrl);
+        return sb.toString();
+    }
+
+    private LocalDateTime parsePostedAt(String rawDate) {
+        if (rawDate == null || rawDate.isBlank()) {
+            return null;
+        }
+
+        List<DateTimeFormatter> dateTimeFormats = List.of(
+                DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm", Locale.KOREA),
+                DateTimeFormatter.ofPattern("yyyy.MM.dd HH:mm", Locale.KOREA),
+                DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm", Locale.KOREA)
         );
-        noticeRepository.save(notice);
 
-        System.out.println("공지 저장 및 디스코드 전송 완료: " + department.getDeptCode() + " / " + title);
+        for (DateTimeFormatter formatter : dateTimeFormats) {
+            try {
+                return LocalDateTime.parse(rawDate, formatter);
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+
+        List<DateTimeFormatter> dateFormats = List.of(
+                DateTimeFormatter.ofPattern("yyyy-MM-dd", Locale.KOREA),
+                DateTimeFormatter.ofPattern("yyyy.MM.dd", Locale.KOREA),
+                DateTimeFormatter.ofPattern("yyyy/MM/dd", Locale.KOREA)
+        );
+
+        for (DateTimeFormatter formatter : dateFormats) {
+            try {
+                return LocalDate.parse(rawDate, formatter).atStartOfDay();
+            } catch (DateTimeParseException ignored) {
+            }
+        }
+
+        return null;
     }
 
     private String resolveDetailUrl(Element link) {
@@ -153,7 +186,7 @@ public class NoticeCrawlerService {
         return args;
     }
 
-    private String extractPostId(String detailUrl) {
+    private String extractExternalId(String detailUrl) {
         String[] numbers = detailUrl.replaceAll("[^0-9]", " ")
                 .trim()
                 .split("\\s+");

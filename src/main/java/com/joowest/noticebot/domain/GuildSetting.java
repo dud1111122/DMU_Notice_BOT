@@ -7,11 +7,11 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
-import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "guild_settings")
@@ -20,20 +20,24 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 @Builder
 public class GuildSetting {
+
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, unique = true)
+    @Column(name = "guild_id", nullable = false, unique = true, length = 100)
     private String guildId;
 
-    @Column(nullable = false)
+    @Column(name = "guild_name")
+    private String guildName;
+
+    @Column(name = "channel_id", length = 100)
     private String channelId;
 
     @Column(nullable = false)
     private Boolean enabled;
 
-    @Column(nullable = false, updatable = false)
+    @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
     @PrePersist

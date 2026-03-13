@@ -14,47 +14,37 @@ import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
-import lombok.Getter;
+import lombok.Data;
 import lombok.NoArgsConstructor;
-import lombok.Setter;
 
 @Entity
 @Table(
-        name = "notices",
+        name = "user_settings",
         uniqueConstraints = @UniqueConstraint(
-                name = "uniq_department_external_notice",
-                columnNames = {"department_id", "external_id"}
+                name = "uniq_user_guild_setting",
+                columnNames = {"user_id", "guild_setting_id"}
         )
 )
-@Getter
-@Setter
+@Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Notice {
+public class UserSetting {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "department_id")
-    private Department department;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private AppUser user;
 
-    @Column(name = "external_id", nullable = false)
-    private String externalId;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "guild_setting_id", nullable = false)
+    private GuildSetting guildSetting;
 
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private String title;
-
-    @Column(nullable = false, unique = true, columnDefinition = "TEXT")
-    private String url;
-
-    @Column(columnDefinition = "TEXT")
-    private String summary;
-
-    @Column(name = "posted_at")
-    private LocalDateTime postedAt;
+    @Column(name = "all_notice_enabled", nullable = false)
+    private Boolean allNoticeEnabled;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -63,6 +53,9 @@ public class Notice {
     void onCreate() {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
+        }
+        if (allNoticeEnabled == null) {
+            allNoticeEnabled = false;
         }
     }
 }

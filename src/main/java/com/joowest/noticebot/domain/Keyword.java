@@ -2,11 +2,15 @@ package com.joowest.noticebot.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import java.time.LocalDateTime;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -14,31 +18,33 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @Entity
-@Table(name = "departments")
+@Table(
+        name = "keywords",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uniq_user_guild_keyword",
+                columnNames = {"user_id", "guild_setting_id", "keyword"}
+        )
+)
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Department {
+public class Keyword {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(name = "dept_code", nullable = false, unique = true)
-    private String deptCode;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private AppUser user;
 
-    @Column(name = "dept_name", nullable = false)
-    private String deptName;
-
-    @Column(name = "notice_url", nullable = false, columnDefinition = "TEXT")
-    private String noticeUrl;
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumn(name = "guild_setting_id", nullable = false)
+    private GuildSetting guildSetting;
 
     @Column(nullable = false)
-    private Boolean enabled;
-
-    @Column(name = "sort_order", nullable = false)
-    private Integer sortOrder;
+    private String keyword;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -47,12 +53,6 @@ public class Department {
     void onCreate() {
         if (createdAt == null) {
             createdAt = LocalDateTime.now();
-        }
-        if (enabled == null) {
-            enabled = true;
-        }
-        if (sortOrder == null) {
-            sortOrder = 0;
         }
     }
 }
